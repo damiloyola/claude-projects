@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Status</title>
+<style>
+  :root {
+    --bg: #f4f3ef; --panel: #ffffff; --text: #1d1c1a; --muted: #6b6963;
+    --border: rgba(0,0,0,.10);
+    --gray: #a3a19b; --yellow: #e2a400; --green: #2f9e57; --red: #d6402f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #161615; --panel: #212120; --text: #ecebe7; --muted: #9c9a93;
+            --border: rgba(255,255,255,.10); --gray: #6c6a65; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 15px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 48px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  h1 { font-size: 20px; margin: 0; font-weight: 600; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
+       color: var(--muted); margin: 32px 0 10px; font-weight: 600; }
+  .conn { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .conn.down { color: var(--red); }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+          padding: 14px 16px; display: flex; gap: 14px; align-items: center; }
+  .card.ended { opacity: .55; }
+  .light { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--gray); }
+  .light.yellow { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
+  .light.green  { background: var(--green);  box-shadow: 0 0 10px var(--green); }
+  .light.red    { background: var(--red);    box-shadow: 0 0 14px var(--red); animation: pulse .6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: .45; } }
+  .info { min-width: 0; }
+  .project { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .meta { font-size: 13px; color: var(--muted); }
+  .badge { display: inline-block; font-size: 11px; padding: 1px 7px; border-radius: 99px;
+           border: 1px solid var(--border); margin-right: 6px; color: var(--text); }
+  .empty { color: var(--muted); padding: 20px; border: 1px dashed var(--border); border-radius: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  td.sid { font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
+  .log { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--gray); margin-right: 6px; }
+  .dot.yellow { background: var(--yellow); } .dot.green { background: var(--green); } .dot.red { background: var(--red); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="light" id="overall"></div>
+    <h1>Sesiones de Claude Code</h1>
+    <span class="conn" id="conn">conectando…</span>
+  </header>
+  <div class="grid" id="cards"></div>
+
+  <h2>Últimos 50 eventos</h2>
+  <div class="log">
+    <table>
+      <thead><tr><th>Hora</th><th>Cuenta</th><th>Proyecto</th><th>Evento</th><th>Estado</th><th>Sesión</th></tr></thead>
+      <tbody id="log"></tbody>
+    </table>
+  </div>
+</main>
+<script>
+const COLOR = { attention: "red", working: "yellow", done: "green", ended: "gray", unknown: "gray" };
+const LABEL = { attention: "necesita algo", working: "trabajando", done: "terminó", ended: "sesión cerrada", unknown: "sin datos" };
+
+function esc(s) {
+  return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+function ago(sec) {
+  sec = Math.max(0, Math.round(sec));
+  if (sec < 5) return "recién";
+  if (sec < 60) return `hace ${sec} s`;
+  if (sec < 3600) return `hace ${Math.floor(sec / 60)} min`;
+  return `hace ${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min`;
+}
+function hhmmss(ts) { return new Date(ts * 1000).toLocaleTimeString(); }
+
+function renderState(st) {
+  document.getElementById("overall").className = "light " + st.overall_color;
+  const cards = document.getElementById("cards");
+  if (!st.sessions.length) {
+    cards.innerHTML = '<div class="empty">Sin sesiones todavía. Mandá un prompt en Claude Code o corré <code>./test-events.sh</code>.</div>';
+    return;
+  }
+  cards.innerHTML = st.sessions.map(s => `
+    <div class="card ${s.status === "ended" ? "ended" : ""}">
+      <div class="light ${COLOR[s.status] || "gray"}" title="${esc(LABEL[s.status])}"></div>
+      <div class="info">
+        <div class="project" title="${esc(s.project)}">${esc(s.project)}</div>
+        <div class="meta"><span class="badge">${esc(s.account)}</span>${esc(LABEL[s.status] || s.status)}</div>
+        <div class="meta">${esc(s.last_event)} · ${ago(s.age_s)}</div>
+      </div>
+    </div>`).join("");
+}
+
+function renderLog(events) {
+  document.getElementById("log").innerHTML = events.map(e => `
+    <tr>
+      <td>${hhmmss(e.timestamp)}</td>
+      <td>${esc(e.account)}</td>
+      <td>${esc(e.project)}</td>
+      <td>${esc(e.event)}${e.notification_type ? ` <span class="meta">(${esc(e.notification_type)})</span>` : ""}</td>
+      <td><span class="dot ${COLOR[e.status] || "gray"}"></span>${esc(LABEL[e.status] || e.status)}</td>
+      <td class="sid">${esc(String(e.session_id).slice(0, 8))}</td>
+    </tr>`).join("");
+}
+
+async function tick() {
+  const conn = document.getElementById("conn");
+  try {
+    const [st, ev] = await Promise.all([
+      fetch("/state", { cache: "no-store" }).then(r => r.json()),
+      fetch("/events", { cache: "no-store" }).then(r => r.json()),
+    ]);
+    renderState(st);
+    renderLog(ev);
+    conn.textContent = "en vivo · " + new Date().toLocaleTimeString();
+    conn.classList.remove("down");
+  } catch (err) {
+    conn.textContent = "servidor caído";
+    conn.classList.add("down");
+  }
+}
+tick();
+setInterval(tick, 1000);
+</script>
+</body>
+</html>
