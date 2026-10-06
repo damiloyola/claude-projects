@@ -22,7 +22,8 @@ BASE = "http://127.0.0.1:8765"
 HERE = Path(__file__).resolve().parent.parent
 PROJECT_DIR = HERE if (HERE / "server.py").exists() else Path.home() / "claude-status"
 
-COLORS = {"red": "#E5484D", "yellow": "#F5B700", "green": "#30A46C", "gray": "#8B8D98"}
+# Emojis en vez de íconos coloreados: se ven con color en cualquier versión de SwiftBar.
+DOTS = {"red": "🔴", "yellow": "🟡", "green": "🟢", "gray": "⚪️"}
 LABEL = {
     "attention": "necesita algo",
     "working": "trabajando",
@@ -49,7 +50,7 @@ def ago(sec):
 
 
 def dot(color):
-    return f"sfimage=circle.fill sfcolor={COLORS.get(color, COLORS['gray'])}"
+    return DOTS.get(color, DOTS["gray"])
 
 
 def main():
@@ -57,9 +58,9 @@ def main():
         with urllib.request.urlopen(BASE + "/state", timeout=0.8) as resp:
             state = json.load(resp)
     except Exception:
-        print(f"| sfimage=circle.dashed sfcolor={COLORS['gray']}")
+        print("⚫️")
         print("---")
-        print("Servidor apagado | color=gray")
+        print("Servidor apagado (no responde en 127.0.0.1:8765) | color=gray")
         print(f'Iniciar servidor | bash="{PROJECT_DIR / "start.sh"}" terminal=false refresh=true sfimage=play.fill')
         return
 
@@ -68,7 +69,7 @@ def main():
     # Barra de menú: punto del estado más urgente + cuántas necesitan algo o trabajan.
     busy = counts.get("attention", 0) or counts.get("working", 0)
     title = str(busy) if busy else ""
-    print(f"{title} | {dot(state.get('overall_color', 'gray'))}")
+    print(f"{dot(state.get('overall_color', 'gray'))}{title}")
     print("---")
 
     if not sessions:
@@ -76,11 +77,13 @@ def main():
     for s in sessions:
         app = s.get("app") or "Claude"
         line = f"{clean(s.get('project', '?'))} — {LABEL.get(s.get('status'), s.get('status'))}"
-        print(f'{line} | {dot(s.get("color"))} bash=/usr/bin/open param1=-a param2="{clean(app)}" terminal=false')
+        print(f'{dot(s.get("color"))} {line} | bash=/usr/bin/open param1=-a param2="{clean(app)}" terminal=false')
         print(f"{clean(s.get('last_event', ''))} · {ago(s.get('age_s', 0))} · {clean(app)} | size=11 color=gray")
 
     print("---")
     print(f"Abrir monitor web | href={BASE} sfimage=safari")
+    print(f'Diagnóstico… | bash="{PROJECT_DIR / "doctor.sh"}" terminal=true sfimage=stethoscope')
+    print(f'Ver log de eventos | bash=/usr/bin/open param1=-a param2=Console param3="{PROJECT_DIR / "events.log"}" terminal=false sfimage=doc.text')
     print(f'Detener servidor | bash="{PROJECT_DIR / "stop.sh"}" terminal=false refresh=true sfimage=stop.fill')
 
 

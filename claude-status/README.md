@@ -12,6 +12,7 @@ Solo usa Python 3 (librería estándar) y `curl`. Todo corre en `127.0.0.1:8765`
 | `start.sh` / `stop.sh` | Inician y detienen el servidor en segundo plano |
 | `test-events.sh` | Manda eventos falsos de "personal" y "trabajo" (con una sola cuenta, la página oculta la etiqueta de cuenta) |
 | `swiftbar/claude-status.2s.py` | Plugin de SwiftBar: el punto de color en la barra de menú |
+| `doctor.sh` | Diagnóstico: revisa servidor, hooks y eventos, y dice dónde se corta |
 | `check-managed.sh` | Solo lectura: busca managed settings que bloqueen hooks |
 | `events.log` | Log de eventos en formato JSON Lines (se crea solo y rota a los 5 MB) |
 
@@ -68,7 +69,7 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
 3. Provocá un pedido de permiso, por ejemplo: "creá el archivo /tmp/prueba.txt con
    el texto hola" (en modo de permisos por defecto). Mientras espera tu aprobación,
    la tarjeta se pone **roja**.
-4. Si algo no aparece, mirá `events.log` y `server.out`.
+4. Si algo no aparece, corré `./doctor.sh` (o "Diagnóstico…" en el menú de la barra).
 
 ## Barra de menú (SwiftBar)
 
@@ -77,8 +78,8 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
 2. Abrilo. La primera vez te pide una carpeta de plugins: elegí `~/claude-status/swiftbar`.
    En el diálogo, `Cmd+Shift+G` te deja escribir la ruta. Si ya lo habías configurado
    con otra carpeta, cambiala en Preferencias.
-3. Aparece un punto arriba a la derecha: 🔴 necesita algo, 🟡 trabajando, 🟢 terminó y
-   ⚪ (punteado) servidor apagado. El número es cuántas sesiones necesitan algo o están
+3. Aparece un punto arriba a la derecha: 🔴 necesita algo, 🟡 trabajando, 🟢 terminó,
+   ⚪️ sin datos y ⚫️ servidor apagado. El número es cuántas sesiones necesitan algo o están
    trabajando.
 4. Al hacer clic se abre la lista de sesiones. Clic en una sesión trae al frente la app
    donde corre (la app de escritorio de Claude, Terminal, VS Code…). **No abre la
@@ -103,6 +104,9 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
 - Limitación conocida: después de aprobar un permiso, la tarjeta sigue en rojo hasta
   el próximo `Stop`. Esto se puede mejorar en la etapa 2 con `PostToolUse`.
 - Las sesiones cerradas desaparecen a los 30 min.
+- Al reiniciar el servidor, recupera el estado de las últimas 12 h desde `events.log`.
+- Una sesión que el servidor conoció a mitad de camino queda en "sin datos" hasta el
+  próximo prompt (o pasa a amarillo si termina un subagente).
 
 ## API (para la barra de menú y el ESP32)
 

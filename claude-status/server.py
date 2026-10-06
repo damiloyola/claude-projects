@@ -26,6 +26,7 @@ LOG_MAX_BYTES = 5 * 1024 * 1024  # al superar 5 MB se rota a events.log.1
 MAX_BODY = 4096
 RECENT_MAX = 50
 ENDED_TTL = 30 * 60  # las sesiones terminadas desaparecen a los 30 min
+REPLAY_MAX_AGE = 12 * 3600  # al arrancar, se recupera el estado de las últimas 12 h
 
 # Evento de hook -> estado. Los que no están acá no cambian el estado.
 EVENT_STATUS = {
@@ -60,8 +61,8 @@ def clean_str(value, limit=200):
     return str(value).replace("\n", " ").replace("\r", " ")[:limit]
 
 
-def parse_ts(value):
-    now = time.time()
+def parse_ts(value, now=None):
+    now = now or time.time()
     try:
         ts = float(value)
     except (TypeError, ValueError):
@@ -82,20 +83,29 @@ def append_log(record):
         print(f"no pude escribir {LOG_FILE}: {exc}", file=sys.stderr)
 
 
-def apply_event(data):
+def apply_event(data, replay=False):
     now = time.time()
+    if replay:  # al recuperar del log, la "hora actual" es la del evento original
+        now = parse_ts(data.get("received"), now)
     record = {
         "account": clean_str(data.get("account"), 40) or "sin-cuenta",
         "event": clean_str(data.get("event"), 40),
         "session_id": clean_str(data.get("session_id"), 80) or "sin-sesion",
         "project": clean_str(data.get("project"), 120) or "?",
-        "timestamp": parse_ts(data.get("timestamp")),
+        "timestamp": parse_ts(data.get("timestamp"), now),
         "received": now,
         "app": clean_str(data.get("app"), 40),
     }
     ntype = clean_str(data.get("notification_type"), 40) if record["event"] == "Notification" else ""
     if ntype:
         record["notification_type"] = ntype
+
+    if record["event"] == "Diagnostico":  # evento de prueba de doctor.sh: solo al log
+        record["status"] = "ok"
+        if not replay:
+            with lock:
+                append_log(record)
+        return record
 
     new_status = EVENT_STATUS.get(record["event"])
     if record["event"] == "Notification" and ntype in PASSIVE_NOTIFICATIONS:
@@ -119,9 +129,14 @@ def apply_event(data):
         sess["last_ts"] = record["timestamp"]
         if new_status:
             sess["status"] = new_status
+        elif sess["status"] == "unknown" and record["event"] == "SubagentStop":
+            # Una sesión que ya estaba en marcha antes de que el servidor la viera:
+            # si termina un subagente, el agente principal está trabajando.
+            sess["status"] = "working"
         record["status"] = sess["status"]
         recent.appendleft(record)
-        append_log(record)
+        if not replay:
+            append_log(record)
     return record
 
 
@@ -222,7 +237,29 @@ class Handler(BaseHTTPRequestHandler):
         return self._send(200, {"ok": True, "status": record["status"]})
 
 
+def replay_log():
+    """Recupera el estado de las últimas horas desde events.log (para reinicios)."""
+    try:
+        lines = LOG_FILE.read_text(encoding="utf-8").splitlines()[-2000:]
+    except OSError:
+        return 0
+    cutoff = time.time() - REPLAY_MAX_AGE
+    count = 0
+    for line in lines:
+        try:
+            data = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(data, dict) and float(data.get("received") or 0) >= cutoff:
+            apply_event(data, replay=True)
+            count += 1
+    return count
+
+
 def main():
+    restored = replay_log()
+    if restored:
+        print(f"recuperados {restored} eventos de {LOG_FILE.name}")
     httpd = ThreadingHTTPServer((HOST, PORT), Handler)
     httpd.daemon_threads = True
     print(f"claude-status escuchando en http://{HOST}:{PORT}  (Ctrl+C para salir)")
