@@ -91,6 +91,7 @@ def apply_event(data):
         "project": clean_str(data.get("project"), 120) or "?",
         "timestamp": parse_ts(data.get("timestamp")),
         "received": now,
+        "app": clean_str(data.get("app"), 40),
     }
     ntype = clean_str(data.get("notification_type"), 40) if record["event"] == "Notification" else ""
     if ntype:
@@ -112,6 +113,8 @@ def apply_event(data):
                 "first_seen": now,
             }
         sess["project"] = record["project"]
+        if record["app"]:
+            sess["app"] = record["app"]
         sess["last_event"] = record["event"]
         sess["last_ts"] = record["timestamp"]
         if new_status:

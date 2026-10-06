@@ -5,7 +5,7 @@ Uso (desde settings.json):  python3 /ruta/hook.py --cuenta personal
 
 Lee el JSON que Claude Code manda por stdin y reenvía SOLO:
   account, event, session_id, project (nombre de la carpeta del cwd),
-  timestamp y, en Notification, notification_type.
+  timestamp, app (Terminal, Claude, …) y, en Notification, notification_type.
 Nunca manda prompts, mensajes, transcript ni código.
 Nunca falla: ante cualquier error termina en silencio con exit 0.
 """
@@ -18,6 +18,23 @@ import urllib.request
 
 URL = os.environ.get("CLAUDE_STATUS_URL", "http://127.0.0.1:8765/event")
 TIMEOUT_S = 1.0
+
+# Programa donde corre la sesión, para que la barra de menú lo traiga al frente.
+TERM_APPS = {
+    "Apple_Terminal": "Terminal",
+    "iTerm.app": "iTerm",
+    "vscode": "Visual Studio Code",
+    "WarpTerminal": "Warp",
+    "ghostty": "Ghostty",
+    "WezTerm": "WezTerm",
+}
+
+
+def detect_app():
+    term = os.environ.get("TERM_PROGRAM", "")
+    if term:
+        return TERM_APPS.get(term, term)
+    return "Claude"  # sin terminal: app de escritorio
 
 
 def main():
@@ -37,6 +54,7 @@ def main():
         "session_id": data.get("session_id", ""),
         "project": os.path.basename(os.path.normpath(cwd)) if cwd else "",
         "timestamp": time.time(),
+        "app": detect_app(),
     }
     if payload["event"] == "Notification" and data.get("notification_type"):
         payload["notification_type"] = data["notification_type"]

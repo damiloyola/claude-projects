@@ -11,6 +11,7 @@ Solo usa Python 3 (librería estándar) y `curl`. Todo corre en `127.0.0.1:8765`
 | `install_hooks.py` | Agrega o quita los hooks en un `settings.json`: muestra el diff, pide confirmación y hace backup |
 | `start.sh` / `stop.sh` | Inician y detienen el servidor en segundo plano |
 | `test-events.sh` | Manda eventos falsos de "personal" y "trabajo" (con una sola cuenta, la página oculta la etiqueta de cuenta) |
+| `swiftbar/claude-status.2s.py` | Plugin de SwiftBar: el punto de color en la barra de menú |
 | `check-managed.sh` | Solo lectura: busca managed settings que bloqueen hooks |
 | `events.log` | Log de eventos en formato JSON Lines (se crea solo y rota a los 5 MB) |
 
@@ -68,6 +69,23 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
    el texto hola" (en modo de permisos por defecto). Mientras espera tu aprobación,
    la tarjeta se pone **roja**.
 4. Si algo no aparece, mirá `events.log` y `server.out`.
+
+## Barra de menú (SwiftBar)
+
+1. Instalá SwiftBar, que es gratis y de código abierto: `brew install swiftbar`,
+   o bajalo desde https://github.com/swiftbar/SwiftBar/releases y arrastralo a Aplicaciones.
+2. Abrilo. La primera vez te pide una carpeta de plugins: elegí `~/claude-status/swiftbar`.
+   En el diálogo, `Cmd+Shift+G` te deja escribir la ruta. Si ya lo habías configurado
+   con otra carpeta, cambiala en Preferencias.
+3. Aparece un punto arriba a la derecha: 🔴 necesita algo, 🟡 trabajando, 🟢 terminó y
+   ⚪ (punteado) servidor apagado. El número es cuántas sesiones necesitan algo o están
+   trabajando.
+4. Al hacer clic se abre la lista de sesiones. Clic en una sesión trae al frente la app
+   donde corre (la app de escritorio de Claude, Terminal, VS Code…). **No abre la
+   conversación exacta**: la app de escritorio todavía no tiene un enlace para abrir una
+   sesión existente de Claude Code.
+5. El `2s` del nombre es cada cuánto se actualiza. Si lo querés más rápido, renombralo a
+   `claude-status.1s.py`.
 
 ## Estados
 
