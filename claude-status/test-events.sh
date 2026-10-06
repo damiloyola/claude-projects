@@ -45,5 +45,10 @@ step "-> todo verde"
 
 send personal SessionEnd "$P2" scripts-casa
 echo "-> gris: personal/scripts-casa cerró la sesión"
-echo "Listo. Estado actual:"
-curl -s -m 1 "${URL%/event}/state"; echo
+echo "Listo. Las sesiones de prueba se quitan solas en 15 s…"
+sleep 15
+for sid in "$P1:personal" "$P2:personal" "$T1:trabajo"; do
+  curl -s -m 1 -o /dev/null -H 'Content-Type: application/json' \
+    -d "{\"account\":\"${sid#*:}\",\"session_id\":\"${sid%%:*}\"}" "${URL%/event}/session/forget"
+done
+echo "Sesiones de prueba quitadas."

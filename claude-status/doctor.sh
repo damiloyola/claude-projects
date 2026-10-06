@@ -15,6 +15,10 @@ echo "2) Servidor"
 if [ -f server.pid ] && kill -0 "$(cat server.pid)" 2>/dev/null; then ok "proceso corriendo (pid $(cat server.pid))"; else bad "no hay proceso de start.sh (corré ./start.sh)"; fi
 if curl -s -m 1 -o /dev/null http://127.0.0.1:8765/state; then ok "responde en http://127.0.0.1:8765"; else bad "no responde en http://127.0.0.1:8765"; [ -f server.out ] && { info "últimas líneas de server.out:"; tail -5 server.out | sed 's/^/      /'; }; fi
 
+if [ -f swiftbar/claude-status.2s.py ]; then
+  bad "quedó el plugin viejo swiftbar/claude-status.2s.py: borralo (duplica el punto)"
+fi
+
 echo "3) Hooks en $CONFIG"
 if [ -f "$CONFIG" ] && grep -q "claude-status/hook.py" "$CONFIG"; then
   ok "instalados ($(grep -c 'claude-status/hook.py' "$CONFIG") entradas)"

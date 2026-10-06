@@ -3,14 +3,19 @@
 
 Solo librería estándar. Escucha en 127.0.0.1:8765 por defecto.
 
-  POST /event   recibe un evento del hook (JSON)
-  GET  /state   estado actual de cada sesión (JSON, pensado para ESP32 / barra de menú)
-  GET  /events  últimos 50 eventos (JSON)
-  GET  /        página web que se actualiza sola
+  POST /event            recibe un evento del hook (JSON)
+  GET  /state            estado actual de cada sesión (JSON, para ESP32 / barra de menú)
+  GET  /events           últimos 50 eventos (JSON)
+  GET  /                 página web que se actualiza sola
+  POST /session/forget   {"account", "session_id"}: quita una sesión de la lista
+  POST /session/rename   {"account", "session_id", "name"}: nombre propio ("" = volver al proyecto)
+  POST /sessions/clean   quita todas las sesiones que no están trabajando ni esperando
+  GET|POST /config       {"sound": true|false}
 """
 
 import json
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -25,7 +30,22 @@ LOG_FILE = BASE_DIR / "events.log"
 LOG_MAX_BYTES = 5 * 1024 * 1024  # al superar 5 MB se rota a events.log.1
 MAX_BODY = 4096
 RECENT_MAX = 50
-ENDED_TTL = 30 * 60  # las sesiones terminadas desaparecen a los 30 min
+NAMES_FILE = BASE_DIR / "names.json"
+CONFIG_FILE = BASE_DIR / "config.json"
+# Una sesión desaparece sola si no tiene eventos durante este tiempo, según su estado.
+# Claude Code no avisa cuando cerrás una ventana sin /exit, por eso el vencimiento.
+STATUS_TTL = {
+    "ended": 2 * 60,            # cerrada: se ve 2 min en gris y se va
+    "unknown": 2 * 3600,
+    "done": 4 * 3600,           # terminó y nadie la volvió a usar en 4 h
+    "working": 12 * 3600,       # por si una sesión se cortó a mitad de camino
+    "attention": 12 * 3600,
+}
+DEFAULT_CONFIG = {
+    "sound": True,
+    "sound_done": "/System/Library/Sounds/Glass.aiff",
+    "sound_attention": "/System/Library/Sounds/Ping.aiff",
+}
 REPLAY_MAX_AGE = 12 * 3600  # al arrancar, se recupera el estado de las últimas 12 h
 
 # Evento de hook -> estado. Los que no están acá no cambian el estado.
@@ -53,6 +73,41 @@ ALLOWED_HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 lock = threading.Lock()
 sessions = {}  # (account, session_id) -> dict
 recent = deque(maxlen=RECENT_MAX)
+seq = 0  # sube con cada cambio de estado: los clientes detectan cambios sin perderse ninguno
+
+
+def load_json(path, default):
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else default
+    except (OSError, ValueError):
+        return default
+
+
+def save_json(path, data):
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+names = load_json(NAMES_FILE, {})  # "cuenta|session_id" -> nombre propio
+config = dict(DEFAULT_CONFIG, **load_json(CONFIG_FILE, {}))
+
+
+def name_key(account, session_id):
+    return f"{account}|{session_id}"
+
+
+def play_sound(status):
+    """Sonido de macOS al terminar o al pedir algo. En segundo plano; nunca falla."""
+    path = config.get("sound_done" if status == "done" else "sound_attention", "")
+    if not config.get("sound") or sys.platform != "darwin" or not os.path.exists(path):
+        return
+    try:
+        subprocess.Popen(["/usr/bin/afplay", path],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except OSError:
+        pass
 
 
 def clean_str(value, limit=200):
@@ -100,6 +155,13 @@ def apply_event(data, replay=False):
     if ntype:
         record["notification_type"] = ntype
 
+    if record["event"] == "_forget":  # quitada a mano: se registra para que no vuelva al reiniciar
+        with lock:
+            sessions.pop((record["account"], record["session_id"]), None)
+            if not replay:
+                append_log(record)
+        return record
+
     if record["event"] == "Diagnostico":  # evento de prueba de doctor.sh: solo al log
         record["status"] = "ok"
         if not replay:
@@ -111,7 +173,9 @@ def apply_event(data, replay=False):
     if record["event"] == "Notification" and ntype in PASSIVE_NOTIFICATIONS:
         new_status = None
 
+    global seq
     key = (record["account"], record["session_id"])
+    sound = None
     with lock:
         sess = sessions.get(key)
         if sess is None:
@@ -121,28 +185,41 @@ def apply_event(data, replay=False):
                 "project": record["project"],
                 "status": "unknown",
                 "first_seen": now,
+                "status_since": now,
             }
         sess["project"] = record["project"]
         if record["app"]:
             sess["app"] = record["app"]
         sess["last_event"] = record["event"]
         sess["last_ts"] = record["timestamp"]
+        previous = sess["status"]
         if new_status:
             sess["status"] = new_status
         elif sess["status"] == "unknown" and record["event"] == "SubagentStop":
             # Una sesión que ya estaba en marcha antes de que el servidor la viera:
             # si termina un subagente, el agente principal está trabajando.
             sess["status"] = "working"
+        if sess["status"] != previous:
+            seq += 1
+            sess["status_since"] = record["timestamp"]
+            if not replay and sess["status"] in ("done", "attention"):
+                sound = sess["status"]
         record["status"] = sess["status"]
         recent.appendleft(record)
         if not replay:
             append_log(record)
+    if sound:
+        play_sound(sound)
     return record
+
+
+def forget(account, session_id):
+    apply_event({"event": "_forget", "account": account, "session_id": session_id})
 
 
 def prune(now):
     for key in [k for k, s in sessions.items()
-                if s["status"] == "ended" and now - s.get("last_ts", now) > ENDED_TTL]:
+                if now - s.get("last_ts", now) > STATUS_TTL.get(s["status"], 3600)]:
         del sessions[key]
 
 
@@ -155,6 +232,8 @@ def build_state():
             item = dict(s)
             item["color"] = STATUS_COLOR.get(s["status"], "gray")
             item["age_s"] = round(max(0.0, now - s.get("last_ts", now)), 1)
+            item["status_age_s"] = round(max(0.0, now - s.get("status_since", now)), 1)
+            item["name"] = names.get(name_key(s["account"], s["session_id"])) or s["project"]
             items.append(item)
     items.sort(key=lambda s: (-STATUS_PRIORITY.get(s["status"], 0), s["age_s"]))
     counts = {k: 0 for k in STATUS_PRIORITY}
@@ -163,6 +242,8 @@ def build_state():
     overall = items[0]["status"] if items else "unknown"
     return {
         "server_time": now,
+        "seq": seq,
+        "sound": bool(config.get("sound")),
         "overall": overall,
         "overall_color": STATUS_COLOR.get(overall, "gray"),
         "counts": counts,
@@ -201,6 +282,8 @@ class Handler(BaseHTTPRequestHandler):
         path = self.path.split("?", 1)[0]
         if path == "/state":
             return self._send(200, build_state())
+        if path == "/config":
+            return self._send(200, config)
         if path == "/events":
             with lock:
                 return self._send(200, list(recent))
@@ -215,7 +298,8 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._host_ok():
             return self._send(403, {"error": "host no permitido"})
-        if self.path.split("?", 1)[0] != "/event":
+        path = self.path.split("?", 1)[0]
+        if path not in ("/event", "/session/forget", "/session/rename", "/sessions/clean", "/config"):
             return self._send(404, {"error": "no encontrado"})
         # Exigir application/json obliga a los navegadores a hacer preflight CORS,
         # que no respondemos: una página web cualquiera no puede inyectar eventos.
@@ -233,8 +317,34 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError
         except ValueError:
             return self._send(400, {"error": "JSON inválido"})
-        record = apply_event(data)
-        return self._send(200, {"ok": True, "status": record["status"]})
+        if path == "/event":
+            if str(data.get("event", "")).startswith("_"):
+                return self._send(400, {"error": "evento reservado"})
+            record = apply_event(data)
+            return self._send(200, {"ok": True, "status": record["status"]})
+        account = clean_str(data.get("account"), 40)
+        session_id = clean_str(data.get("session_id"), 80)
+        if path == "/session/forget":
+            forget(account, session_id)
+        elif path == "/session/rename":
+            new_name = clean_str(data.get("name"), 60).strip()
+            with lock:
+                if new_name:
+                    names[name_key(account, session_id)] = new_name
+                else:
+                    names.pop(name_key(account, session_id), None)
+                save_json(NAMES_FILE, names)
+        elif path == "/sessions/clean":
+            with lock:
+                idle = [k for k, s in sessions.items() if s["status"] not in ("working", "attention")]
+            for acc, sid in idle:
+                forget(acc, sid)
+        elif path == "/config":
+            with lock:
+                if "sound" in data:
+                    config["sound"] = bool(data["sound"])
+                save_json(CONFIG_FILE, config)
+        return self._send(200, {"ok": True})
 
 
 def replay_log():

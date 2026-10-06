@@ -1,4 +1,6 @@
 events.log*
 server.out
 server.pid
+names.json
+config.json
 __pycache__/

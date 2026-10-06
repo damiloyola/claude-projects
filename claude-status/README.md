@@ -11,10 +11,13 @@ Solo usa Python 3 (librería estándar) y `curl`. Todo corre en `127.0.0.1:8765`
 | `install_hooks.py` | Agrega o quita los hooks en un `settings.json`: muestra el diff, pide confirmación y hace backup |
 | `start.sh` / `stop.sh` | Inician y detienen el servidor en segundo plano |
 | `test-events.sh` | Manda eventos falsos de "personal" y "trabajo" (con una sola cuenta, la página oculta la etiqueta de cuenta) |
-| `swiftbar/claude-status.2s.py` | Plugin de SwiftBar: el punto de color en la barra de menú |
+| `swiftbar/claude-status.py` | Plugin de SwiftBar: el punto animado en la barra de menú |
+| `ctl.py` | Acciones del menú: quitar, renombrar, limpiar y sonido |
+| `update.sh` / `restart.sh` | Actualizar desde GitHub y reiniciar el servidor |
 | `doctor.sh` | Diagnóstico: revisa servidor, hooks y eventos, y dice dónde se corta |
 | `check-managed.sh` | Solo lectura: busca managed settings que bloqueen hooks |
 | `events.log` | Log de eventos en formato JSON Lines (se crea solo y rota a los 5 MB) |
+| `names.json` / `config.json` | Nombres que les pusiste a las sesiones y si el sonido está activado |
 
 ## 0. Instalar en la Mac
 
@@ -76,17 +79,33 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
 1. Instalá SwiftBar, que es gratis y de código abierto: `brew install swiftbar`,
    o bajalo desde https://github.com/swiftbar/SwiftBar/releases y arrastralo a Aplicaciones.
 2. Abrilo. La primera vez te pide una carpeta de plugins: elegí `~/claude-status/swiftbar`.
-   En el diálogo, `Cmd+Shift+G` te deja escribir la ruta. Si ya lo habías configurado
-   con otra carpeta, cambiala en Preferencias.
-3. Aparece un punto arriba a la derecha: 🔴 necesita algo, 🟡 trabajando, 🟢 terminó,
-   ⚪️ sin datos y ⚫️ servidor apagado. El número es cuántas sesiones necesitan algo o están
-   trabajando.
-4. Al hacer clic se abre la lista de sesiones. Clic en una sesión trae al frente la app
-   donde corre (la app de escritorio de Claude, Terminal, VS Code…). **No abre la
-   conversación exacta**: la app de escritorio todavía no tiene un enlace para abrir una
-   sesión existente de Claude Code.
-5. El `2s` del nombre es cada cuánto se actualiza. Si lo querés más rápido, renombralo a
-   `claude-status.1s.py`.
+   En el diálogo, `Cmd+Shift+G` te deja escribir la ruta.
+3. El punto de arriba a la derecha:
+   - 🔴 parpadeando: una sesión necesita algo.
+   - 🟡 con un spinner: Claude está trabajando.
+   - 🟢 parpadeando unos segundos: recién terminó. Después queda fijo.
+   - ⚪️: sin sesiones o sin datos. ⚫️: servidor apagado.
+   - El número aparece cuando hay más de una sesión en ese estado.
+4. Al hacer clic se abre la lista de sesiones. Cada una tiene un submenú con:
+   - **Ir a la app**: trae al frente la app donde corre (no abre la conversación
+     exacta, porque la app de escritorio no tiene un enlace para eso).
+   - **Renombrar…**: le pone un nombre propio; vacío vuelve al nombre de la carpeta.
+   - **Quitar de la lista**.
+5. Abajo del menú están **Sonido al terminar** (suena al terminar o al pedir algo),
+   **Limpiar terminadas**, **Diagnóstico…**, **Actualizar a la última versión…** y
+   **Reiniciar servidor**.
+
+El plugin queda corriendo y SwiftBar lo usa como "streamable": así el punto se anima
+sin lanzar un proceso por segundo.
+
+## Sesiones: cuándo aparecen y cuándo se van
+
+- Cada conversación de Claude Code abierta en tu Mac es una sesión (una tarjeta o fila).
+- Claude Code avisa cuando cerrás con `/exit`, pero no cuando cerrás la ventana. Por eso
+  las sesiones también se van solas si no tienen actividad: las cerradas a los 2 min,
+  las terminadas a las 4 h y las que trabajan o esperan a las 12 h.
+- Podés quitarlas a mano (✕ en la página o "Quitar de la lista" en el menú). Si esa
+  sesión vuelve a tener actividad, reaparece.
 
 ## Estados
 
@@ -103,7 +122,6 @@ python3 install_hooks.py --cuenta personal             # muestra el diff y pregu
   esperando, y pintaría de rojo todo lo que está en verde.
 - Limitación conocida: después de aprobar un permiso, la tarjeta sigue en rojo hasta
   el próximo `Stop`. Esto se puede mejorar en la etapa 2 con `PostToolUse`.
-- Las sesiones cerradas desaparecen a los 30 min.
 - Al reiniciar el servidor, recupera el estado de las últimas 12 h desde `events.log`.
 - Una sesión que el servidor conoció a mitad de camino queda en "sin datos" hasta el
   próximo prompt (o pasa a amarillo si termina un subagente).

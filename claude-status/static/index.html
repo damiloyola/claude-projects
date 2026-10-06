@@ -23,14 +23,28 @@
   h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em;
        color: var(--muted); margin: 32px 0 10px; font-weight: 600; }
   .conn { margin-left: auto; font-size: 13px; color: var(--muted); }
+  .tools { display: flex; gap: 8px; margin: -8px 0 16px; flex-wrap: wrap; }
+  .btn { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border);
+         border-radius: 8px; padding: 5px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
   .conn.down { color: var(--red); }
   .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); }
-  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  .card { position: relative; background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
           padding: 14px 16px; display: flex; gap: 14px; align-items: center; }
+  .card .actions { position: absolute; top: 6px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity .15s; }
+  .card:hover .actions { opacity: 1; }
+  .icon-btn { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 14px; padding: 2px 5px; border-radius: 6px; }
+  .icon-btn:hover { background: var(--border); color: var(--text); }
+  @media (hover: none) { .card .actions { opacity: 1; } }
   .card.ended { opacity: .55; }
   .light { width: 26px; height: 26px; border-radius: 50%; flex: none; background: var(--gray); }
-  .light.yellow { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); animation: pulse 1.2s ease-in-out infinite; }
+  .light.yellow { background: var(--yellow); box-shadow: 0 0 12px var(--yellow); }
   .light.green  { background: var(--green);  box-shadow: 0 0 10px var(--green); }
+  .light.green.fresh { animation: flash .9s ease-in-out infinite; animation-delay: var(--phase, 0s); }
+  @keyframes flash { 50% { opacity: .2; box-shadow: none; } }
+  .light.yellow::after { content: ""; display: block; width: 34px; height: 34px; margin: -4px; border-radius: 50%;
+          border: 2px solid transparent; border-top-color: var(--yellow); animation: spin .9s linear infinite; animation-delay: var(--phase, 0s); }
+  @keyframes spin { to { transform: rotate(360deg); } }
   .light.red    { background: var(--red);    box-shadow: 0 0 14px var(--red); animation: pulse .6s ease-in-out infinite; }
   @keyframes pulse { 50% { opacity: .45; } }
   .info { min-width: 0; }
@@ -56,6 +70,10 @@
     <h1>Sesiones de Claude Code</h1>
     <span class="conn" id="conn">conectando…</span>
   </header>
+  <div class="tools">
+    <button class="btn" id="sound" data-action="sound">🔔 Sonido</button>
+    <button class="btn" data-action="clean">🧹 Limpiar terminadas</button>
+  </div>
   <div class="grid" id="cards"></div>
 
   <h2>Últimos 50 eventos</h2>
@@ -88,20 +106,48 @@ function setAccountVisibility(st, events) {
   document.body.classList.toggle("one-account", accounts.size <= 1);
 }
 
+async function post(path, body) {
+  await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body || {}) });
+  tick();
+}
+
+let lastState = null;
+document.addEventListener("click", async ev => {
+  const el = ev.target.closest("[data-action]");
+  if (!el) return;
+  const { action, account, sid } = el.dataset;
+  if (action === "forget") post("/session/forget", { account, session_id: sid });
+  if (action === "clean") post("/sessions/clean");
+  if (action === "sound") post("/config", { sound: !(lastState && lastState.sound) });
+  if (action === "rename") {
+    const s = lastState.sessions.find(x => x.account === account && x.session_id === sid);
+    const name = prompt("Nombre para esta sesión (vacío = nombre de la carpeta):", s ? s.name : "");
+    if (name !== null) post("/session/rename", { account, session_id: sid, name });
+  }
+});
+
 function renderState(st) {
+  lastState = st;
+  // La página se redibuja cada segundo: con este desfase las animaciones siguen sin saltar.
+  const phase = `--phase:-${(Date.now() % 900) / 1000}s`;
+  document.getElementById("sound").textContent = st.sound ? "🔔 Sonido activado" : "🔕 Sonido apagado";
   document.getElementById("overall").className = "light " + st.overall_color;
   const cards = document.getElementById("cards");
   if (!st.sessions.length) {
-    cards.innerHTML = '<div class="empty">Sin sesiones todavía. Mandá un prompt en Claude Code o corré <code>./test-events.sh</code>.</div>';
+    cards.innerHTML = '<div class="empty">Sin sesiones abiertas. Mandá un prompt en Claude Code o corré <code>./test-events.sh</code>.</div>';
     return;
   }
   cards.innerHTML = st.sessions.map(s => `
     <div class="card ${s.status === "ended" ? "ended" : ""}">
-      <div class="light ${COLOR[s.status] || "gray"}" title="${esc(LABEL[s.status])}"></div>
+      <div class="actions">
+        <button class="icon-btn" title="Renombrar" data-action="rename" data-account="${esc(s.account)}" data-sid="${esc(s.session_id)}">✎</button>
+        <button class="icon-btn" title="Quitar de la lista" data-action="forget" data-account="${esc(s.account)}" data-sid="${esc(s.session_id)}">✕</button>
+      </div>
+      <div class="light ${COLOR[s.status] || "gray"} ${s.status === "done" && s.status_age_s < 8 ? "fresh" : ""}" style="${phase}" title="${esc(LABEL[s.status])}"></div>
       <div class="info">
-        <div class="project" title="${esc(s.project)}">${esc(s.project)}</div>
+        <div class="project" title="${esc(s.name)}">${esc(s.name)}</div>
         <div class="meta"><span class="badge">${esc(s.account)}</span>${esc(LABEL[s.status] || s.status)}</div>
-        <div class="meta">${esc(s.last_event)} · ${ago(s.age_s)}</div>
+        <div class="meta">${esc(s.last_event)} · ${ago(s.age_s)}${s.name !== s.project ? " · " + esc(s.project) : ""}</div>
       </div>
     </div>`).join("");
 }
