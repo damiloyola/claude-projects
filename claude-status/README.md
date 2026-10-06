@@ -10,7 +10,7 @@ Solo usa Python 3 (librería estándar) y `curl`. Todo corre en `127.0.0.1:8765`
 | `hook.py` | Script que llama Claude Code. Reenvía solo evento, sesión, proyecto y hora |
 | `install_hooks.py` | Agrega o quita los hooks en un `settings.json`: muestra el diff, pide confirmación y hace backup |
 | `start.sh` / `stop.sh` | Inician y detienen el servidor en segundo plano |
-| `test-events.sh` | Manda eventos falsos de "personal" y "trabajo" |
+| `test-events.sh` | Manda eventos falsos de "personal" y "trabajo" (con una sola cuenta, la página oculta la etiqueta de cuenta) |
 | `check-managed.sh` | Solo lectura: busca managed settings que bloqueen hooks |
 | `events.log` | Log de eventos en formato JSON Lines (se crea solo y rota a los 5 MB) |
 

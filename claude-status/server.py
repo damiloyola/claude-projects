@@ -92,7 +92,7 @@ def apply_event(data):
         "timestamp": parse_ts(data.get("timestamp")),
         "received": now,
     }
-    ntype = clean_str(data.get("notification_type"), 40)
+    ntype = clean_str(data.get("notification_type"), 40) if record["event"] == "Notification" else ""
     if ntype:
         record["notification_type"] = ntype
 

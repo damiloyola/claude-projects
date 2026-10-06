@@ -44,6 +44,7 @@
   th { color: var(--muted); font-weight: 500; }
   td.sid { font-family: ui-monospace, Menlo, monospace; color: var(--muted); }
   .log { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; overflow-x: auto; }
+  body.one-account .badge, body.one-account .acc { display: none; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--gray); margin-right: 6px; }
   .dot.yellow { background: var(--yellow); } .dot.green { background: var(--green); } .dot.red { background: var(--red); }
 </style>
@@ -60,7 +61,7 @@
   <h2>Últimos 50 eventos</h2>
   <div class="log">
     <table>
-      <thead><tr><th>Hora</th><th>Cuenta</th><th>Proyecto</th><th>Evento</th><th>Estado</th><th>Sesión</th></tr></thead>
+      <thead><tr><th>Hora</th><th class="acc">Cuenta</th><th>Proyecto</th><th>Evento</th><th>Estado</th><th>Sesión</th></tr></thead>
       <tbody id="log"></tbody>
     </table>
   </div>
@@ -80,6 +81,12 @@ function ago(sec) {
   return `hace ${Math.floor(sec / 3600)} h ${Math.floor((sec % 3600) / 60)} min`;
 }
 function hhmmss(ts) { return new Date(ts * 1000).toLocaleTimeString(); }
+
+// La etiqueta de cuenta solo se muestra si hay más de una cuenta distinta.
+function setAccountVisibility(st, events) {
+  const accounts = new Set([...st.sessions, ...events].map(x => x.account));
+  document.body.classList.toggle("one-account", accounts.size <= 1);
+}
 
 function renderState(st) {
   document.getElementById("overall").className = "light " + st.overall_color;
@@ -103,7 +110,7 @@ function renderLog(events) {
   document.getElementById("log").innerHTML = events.map(e => `
     <tr>
       <td>${hhmmss(e.timestamp)}</td>
-      <td>${esc(e.account)}</td>
+      <td class="acc">${esc(e.account)}</td>
       <td>${esc(e.project)}</td>
       <td>${esc(e.event)}${e.notification_type ? ` <span class="meta">(${esc(e.notification_type)})</span>` : ""}</td>
       <td><span class="dot ${COLOR[e.status] || "gray"}"></span>${esc(LABEL[e.status] || e.status)}</td>
@@ -118,6 +125,7 @@ async function tick() {
       fetch("/state", { cache: "no-store" }).then(r => r.json()),
       fetch("/events", { cache: "no-store" }).then(r => r.json()),
     ]);
+    setAccountVisibility(st, ev);
     renderState(st);
     renderLog(ev);
     conn.textContent = "en vivo · " + new Date().toLocaleTimeString();
