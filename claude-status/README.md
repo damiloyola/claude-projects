@@ -17,9 +17,12 @@ Solo usa Python 3 (librería estándar) y `curl`. Todo corre en `127.0.0.1:8765`
 ## 0. Instalar en la Mac
 
 ```sh
-python3 --version                      # si macOS ofrece instalar las Command Line Tools, aceptá
-cp -R /ruta/a/claude-projects/claude-status ~/claude-status
-cd ~/claude-status
+python3 --version   # si macOS ofrece instalar las Command Line Tools, aceptá y volvé a probar
+mkdir -p ~/Downloads/cs-tmp && cd ~/Downloads/cs-tmp
+curl -fL -o cs.tar.gz https://codeload.github.com/damiloyola/claude-projects/tar.gz/refs/heads/claude/claude-code-session-monitor-xp5hm0
+tar -xzf cs.tar.gz --strip-components=1
+cp -R claude-status ~/claude-status
+cd ~/claude-status && ls
 ```
 
 ## 1. Iniciar y detener el servidor
